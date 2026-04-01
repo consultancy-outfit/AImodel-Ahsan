@@ -70,8 +70,15 @@ export function Navbar() {
       }
     }
     void checkAuth()
-    window.addEventListener('storage', () => void checkAuth())
-    return () => window.removeEventListener('storage', () => void checkAuth())
+    // 'auth-change' fires in the SAME tab (after login/logout)
+    // 'storage' fires in OTHER tabs (cross-tab sync)
+    const handler = () => void checkAuth()
+    window.addEventListener('auth-change', handler)
+    window.addEventListener('storage', handler)
+    return () => {
+      window.removeEventListener('auth-change', handler)
+      window.removeEventListener('storage', handler)
+    }
   }, []);
 
   function handleSignOut() {

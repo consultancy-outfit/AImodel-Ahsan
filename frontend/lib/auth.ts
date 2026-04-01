@@ -55,6 +55,8 @@ export function saveToken(token: string): void {
     localStorage.setItem(TOKEN_KEY, token);
     // Also set as cookie for middleware access
     document.cookie = `nexusai_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+    // Notify same-tab listeners (storage event only fires across tabs, not same tab)
+    window.dispatchEvent(new CustomEvent('auth-change'));
   }
 }
 
@@ -68,6 +70,8 @@ export function removeToken(): void {
     localStorage.removeItem(TOKEN_KEY);
     // Also remove cookie
     document.cookie = 'nexusai_token=; path=/; max-age=0; SameSite=Lax';
+    // Notify same-tab listeners
+    window.dispatchEvent(new CustomEvent('auth-change'));
   }
 }
 
