@@ -1,8 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { MessageSquare, Wand2, Bot, DollarSign, Star, Rss } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
+import {
+  MessageSquare, Wand2, Bot, DollarSign, Star, Rss,
+  Mic, MicOff, Video, VideoOff, Monitor, Square,
+  Paperclip, ImageIcon, Send, X, Loader2,
+  Volume2, VolumeX, PhoneOff,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODELS } from "@/lib/models-data";
 
@@ -120,6 +125,495 @@ const USE_CASES = [
 ];
 
 // ---------------------------------------------------------------------------
+// Home chat input — types & helpers
+// ---------------------------------------------------------------------------
+
+interface HMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: Date;
+  attachments?: HAttachment[];
+}
+
+interface HAttachment {
+  id: string;
+  name: string;
+  type: "image" | "file";
+  url: string;
+  size: string;
+}
+
+const HOME_CATEGORIES = [
+  { emoji: "🎨", label: "Create image" },
+  { emoji: "🎵", label: "Generate Audio" },
+  { emoji: "🎬", label: "Create video" },
+  { emoji: "📊", label: "Create slides" },
+  { emoji: "📈", label: "Create Infographs" },
+  { emoji: "❓", label: "Create quiz" },
+  { emoji: "📂", label: "Create Flashcards" },
+  { emoji: "🧠", label: "Create Mind map" },
+  { emoji: "📉", label: "Analyze Data" },
+  { emoji: "✍️", label: "Write content" },
+  { emoji: "💻", label: "Code Generation" },
+  { emoji: "📄", label: "Document Analysis" },
+  { emoji: "🌐", label: "Translate" },
+  { emoji: "🔭", label: "Just Exploring" },
+];
+
+const MOCK_REPLIES = [
+  (q: string) =>
+    `Great! I can help you with "${q.slice(0, 40)}..."\n\nHere's my plan:\n1. Understand your requirements\n2. Generate a solution step by step\n3. Iterate based on feedback\n\nWhat details can you share?`,
+  () =>
+    `Absolutely! Let me break this down:\n\n**Step 1** — Define your goal clearly\n**Step 2** — Choose the right approach\n**Step 3** — Execute and refine\n\nReady when you are!`,
+  (q: string) =>
+    `I've analyzed your request about "${q.slice(0, 30)}..."\n\nRecommendation: Start with the fundamentals, then build incrementally.\n\nShall I elaborate on any step?`,
+];
+
+function fmtTime(d: Date) {
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function fmtSize(b: number) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+function renderMsg(text: string) {
+  return text.split("\n").map((line, i) => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <p key={i} className={i > 0 ? "mt-1" : ""}>
+        {parts.map((p, j) =>
+          p.startsWith("**") && p.endsWith("**") ? (
+            <strong key={j}>{p.slice(2, -2)}</strong>
+          ) : (
+            <span key={j}>{p}</span>
+          )
+        )}
+      </p>
+    );
+  });
+}
+
+function VoiceWave({ active }: { active: boolean }) {
+  return (
+    <span className="flex items-end gap-[2px] h-5">
+      {[1, 2, 3, 4, 3, 2, 1].map((h, i) => (
+        <span
+          key={i}
+          className={cn("w-[3px] rounded-full transition-all", active ? "bg-purple-400" : "bg-slate-500")}
+          style={{
+            height: active ? `${h * 4}px` : "4px",
+            animation: active ? `hwave 0.8s ${i * 0.07}s ease-in-out infinite alternate` : "none",
+          }}
+        />
+      ))}
+      <style>{`@keyframes hwave{from{transform:scaleY(.3)}to{transform:scaleY(1.5)}}`}</style>
+    </span>
+  );
+}
+
+function IBtn({
+  children, onClick, active = false, title, activeCls = "",
+}: {
+  children: React.ReactNode; onClick: () => void;
+  active?: boolean; title?: string; activeCls?: string;
+}) {
+  return (
+    <button
+      onClick={onClick} title={title}
+      className={cn(
+        "w-8 h-8 rounded-xl border flex items-center justify-center transition-all",
+        active
+          ? cn("border text-white", activeCls)
+          : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HomeChatInput  — the full interactive widget embedded in the hero
+// ---------------------------------------------------------------------------
+
+function HomeChatInput() {
+  const model = MODELS[0];
+  const [messages, setMessages] = useState<HMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [pendingAtts, setPendingAtts] = useState<HAttachment[]>([]);
+
+  // voice
+  const [isListening, setIsListening] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recRef = useRef<any>(null);
+  const synthRef = useRef<SpeechSynthesis | null>(null);
+
+  // video / screen
+  const [videoOn, setVideoOn] = useState(false);
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [screenOn, setScreenOn] = useState(false);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const screenRef = useRef<HTMLVideoElement>(null);
+
+  // file inputs
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // speech synthesis
+  useEffect(() => { synthRef.current = window.speechSynthesis; }, []);
+
+  function speak(text: string) {
+    if (!synthRef.current) return;
+    synthRef.current.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/\*\*/g, ""));
+    u.onstart = () => setIsSpeaking(true);
+    u.onend = () => setIsSpeaking(false);
+    synthRef.current.speak(u);
+  }
+  function stopSpeak() { synthRef.current?.cancel(); setIsSpeaking(false); }
+
+  // speech recognition
+  const startListening = useCallback(() => {
+    type WinSR = { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown };
+    const SR = (window as unknown as WinSR).SpeechRecognition || (window as unknown as WinSR).webkitSpeechRecognition;
+    if (!SR) { alert("Speech recognition not supported. Use Chrome."); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec: any = new SR();
+    rec.continuous = voiceMode;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let interim = ""; let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t; else interim += t;
+      }
+      setTranscript(interim || final);
+      if (final && !voiceMode) { setInput(p => (p ? p + " " : "") + final); setTranscript(""); }
+      if (final && voiceMode) { setTranscript(""); void doSend(final, []); }
+    };
+    rec.onerror = () => { setIsListening(false); setTranscript(""); };
+    rec.onend = () => { setIsListening(false); setTranscript(""); };
+    recRef.current = rec;
+    rec.start();
+    setIsListening(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceMode]);
+
+  function stopListen() { recRef.current?.stop(); setIsListening(false); setTranscript(""); }
+  function toggleListen() { if (isListening) stopListen(); else startListening(); }
+
+  function toggleVoiceMode() {
+    if (voiceMode) { stopListen(); stopSpeak(); setVoiceMode(false); }
+    else setVoiceMode(true);
+  }
+
+  // video
+  async function toggleVideo() {
+    if (videoOn) {
+      videoStream?.getTracks().forEach(t => t.stop());
+      setVideoStream(null); setVideoOn(false);
+    } else {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        setVideoStream(s); setVideoOn(true);
+      } catch { alert("Camera permission denied."); }
+    }
+  }
+  useEffect(() => { if (videoRef.current && videoStream) videoRef.current.srcObject = videoStream; }, [videoStream]);
+
+  // screen
+  async function toggleScreen() {
+    if (screenOn) {
+      screenStream?.getTracks().forEach(t => t.stop());
+      setScreenStream(null); setScreenOn(false);
+    } else {
+      try {
+        const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        s.getVideoTracks()[0].onended = () => { setScreenStream(null); setScreenOn(false); };
+        setScreenStream(s); setScreenOn(true);
+      } catch { /* cancelled */ }
+    }
+  }
+  useEffect(() => { if (screenRef.current && screenStream) screenRef.current.srcObject = screenStream; }, [screenStream]);
+
+  // files
+  function handleFiles(files: FileList | null, type: "image" | "file") {
+    if (!files) return;
+    Array.from(files).forEach(f => {
+      setPendingAtts(p => [...p, { id: crypto.randomUUID(), name: f.name, type, url: URL.createObjectURL(f), size: fmtSize(f.size) }]);
+    });
+  }
+
+  // send
+  async function doSend(content: string, atts: HAttachment[]) {
+    if (!content.trim() && atts.length === 0) return;
+    const userMsg: HMessage = { id: crypto.randomUUID(), role: "user", content: content.trim(), timestamp: new Date(), attachments: atts.length ? atts : undefined };
+    setMessages(p => [...p, userMsg]);
+    setInput(""); setPendingAtts([]); setIsTyping(true);
+    if (taRef.current) taRef.current.style.height = "auto";
+    await new Promise(r => setTimeout(r, 700 + Math.random() * 800));
+    const fn = MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
+    const reply = fn(content.trim() || "your attachment");
+    const assistantMsg: HMessage = { id: crypto.randomUUID(), role: "assistant", content: reply, timestamp: new Date() };
+    setMessages(p => [...p, assistantMsg]);
+    setIsTyping(false);
+    if (voiceMode) speak(reply);
+  }
+
+  function sendMsg() { void doSend(input, pendingAtts); }
+
+  function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+  }
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
+
+  // cleanup
+  useEffect(() => () => {
+    videoStream?.getTracks().forEach(t => t.stop());
+    screenStream?.getTracks().forEach(t => t.stop());
+    recRef.current?.stop();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const hasMessages = messages.length > 0;
+
+  return (
+    <div className="w-full max-w-3xl mx-auto">
+      {/* Voice conversation overlay */}
+      {voiceMode && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center gap-6 px-4">
+          <div className="text-center">
+            <div className="text-6xl mb-3">{model.logo}</div>
+            <h2 className="text-2xl font-bold text-slate-100">Voice Conversation</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              {isSpeaking ? "AI is speaking…" : isListening ? "Listening…" : "Tap mic to speak"}
+            </p>
+          </div>
+          <div className="flex items-end gap-1 h-14">
+            {Array.from({ length: 18 }).map((_, i) => (
+              <span key={i} className={cn("w-1 rounded-full", isSpeaking || isListening ? "bg-purple-400" : "bg-slate-700")}
+                style={{ height: isSpeaking || isListening ? `${Math.random() * 40 + 8}px` : "8px",
+                  animation: isSpeaking || isListening ? `hwave ${0.4 + Math.random() * 0.4}s ${i * 0.04}s ease-in-out infinite alternate` : "none" }} />
+            ))}
+          </div>
+          {transcript && <p className="text-slate-300 italic max-w-sm text-center">"{transcript}"</p>}
+          {hasMessages && (
+            <div className="max-w-lg w-full max-h-40 overflow-y-auto space-y-2">
+              {messages.slice(-3).map(m => (
+                <div key={m.id} className={cn("text-sm px-4 py-2 rounded-xl max-w-[85%]",
+                  m.role === "user" ? "bg-purple-600/30 text-purple-200 ml-auto" : "bg-slate-800 text-slate-200")}>
+                  {m.content.slice(0, 100)}{m.content.length > 100 ? "…" : ""}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-4">
+            <button onClick={toggleListen}
+              className={cn("w-16 h-16 rounded-full flex items-center justify-center text-white shadow-lg transition-all",
+                isListening ? "bg-red-500 hover:bg-red-400 animate-pulse" : "bg-purple-600 hover:bg-purple-500")}>
+              {isListening ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+            </button>
+            {isSpeaking && (
+              <button onClick={stopSpeak} className="w-16 h-16 rounded-full bg-orange-600 hover:bg-orange-500 flex items-center justify-center text-white transition-all">
+                <VolumeX className="w-7 h-7" />
+              </button>
+            )}
+            <button onClick={toggleVoiceMode} className="w-16 h-16 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-white transition-all">
+              <PhoneOff className="w-7 h-7" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Video / screen preview */}
+      {(videoOn || screenOn) && (
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {videoOn && (
+            <div className="relative w-36 h-24 rounded-xl overflow-hidden border border-slate-700 bg-slate-800 shrink-0">
+              <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <button onClick={toggleVideo} className="absolute top-1 right-1 bg-slate-900/80 rounded-full p-0.5 hover:bg-red-600 transition-colors">
+                <X className="w-3 h-3 text-white" />
+              </button>
+              <span className="absolute bottom-1 left-1.5 text-[10px] text-white bg-slate-900/70 px-1 py-0.5 rounded-full">Camera</span>
+            </div>
+          )}
+          {screenOn && (
+            <div className="relative flex-1 min-w-0 max-w-[260px] h-24 rounded-xl overflow-hidden border border-slate-700 bg-slate-800">
+              <video ref={screenRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <button onClick={toggleScreen} className="absolute top-1 right-1 bg-slate-900/80 rounded-full p-0.5 hover:bg-red-600 transition-colors">
+                <X className="w-3 h-3 text-white" />
+              </button>
+              <span className="absolute bottom-1 left-1.5 text-[10px] text-white bg-slate-900/70 px-1 py-0.5 rounded-full">Screen</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Messages (shown below input when started) */}
+      {hasMessages && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mb-4 max-h-72 overflow-y-auto space-y-3">
+          {messages.map(msg =>
+            msg.role === "user" ? (
+              <div key={msg.id} className="flex justify-end items-end gap-2">
+                <span className="text-[10px] text-slate-600">{fmtTime(msg.timestamp)}</span>
+                <div className="max-w-[75%] space-y-1.5">
+                  {msg.attachments?.map(a => (
+                    <div key={a.id} className="flex justify-end">
+                      {a.type === "image"
+                        ? <img src={a.url} alt={a.name} className="max-w-[200px] rounded-xl border border-slate-700" />
+                        : <div className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs flex items-center gap-1.5">
+                            <Paperclip className="w-3 h-3 text-slate-400" />
+                            <span className="text-slate-300 truncate max-w-[140px]">{a.name}</span>
+                          </div>}
+                    </div>
+                  ))}
+                  {msg.content && <div className="bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">{msg.content}</div>}
+                </div>
+              </div>
+            ) : (
+              <div key={msg.id} className="flex items-start gap-2 max-w-[85%]">
+                <span className="text-lg w-7 h-7 flex items-center justify-center bg-slate-800 rounded-full shrink-0">{model.logo}</span>
+                <div>
+                  <div className="text-[10px] text-slate-600 mb-0.5">{model.name} · {fmtTime(msg.timestamp)}</div>
+                  <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed">
+                    {renderMsg(msg.content)}
+                  </div>
+                  {voiceMode && (
+                    <button onClick={() => speak(msg.content)} className="mt-1 text-[10px] text-slate-600 hover:text-purple-400 flex items-center gap-1">
+                      <Volume2 className="w-3 h-3" /> Play
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+          {isTyping && (
+            <div className="flex items-start gap-2">
+              <span className="text-lg w-7 h-7 flex items-center justify-center bg-slate-800 rounded-full">{model.logo}</span>
+              <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-2.5">
+                <span className="flex gap-1">
+                  {[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+                </span>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+      )}
+
+      {/* Pending attachments */}
+      {pendingAtts.length > 0 && (
+        <div className="flex gap-2 flex-wrap mb-3">
+          {pendingAtts.map(a => (
+            <div key={a.id} className="relative bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+              {a.type === "image"
+                ? <img src={a.url} alt={a.name} className="w-14 h-14 object-cover" />
+                : <div className="flex items-center gap-1.5 px-3 py-2 text-xs"><Paperclip className="w-3 h-3 text-slate-400" /><span className="text-slate-300 max-w-[100px] truncate">{a.name}</span></div>}
+              <button onClick={() => setPendingAtts(p => p.filter(x => x.id !== a.id))} className="absolute top-0.5 right-0.5 bg-slate-900/80 rounded-full p-0.5 hover:bg-red-600">
+                <X className="w-2.5 h-2.5 text-white" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Voice transcript */}
+      {transcript && (
+        <div className="mb-2 px-3 py-2 bg-purple-600/10 border border-purple-500/30 rounded-xl text-sm text-purple-300 italic">
+          {transcript}…
+        </div>
+      )}
+
+      {/* ── Main input box ── */}
+      <div className="flex items-end gap-2 bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-2.5 focus-within:border-purple-500 transition-colors shadow-xl">
+        <textarea
+          ref={taRef}
+          rows={1}
+          value={input}
+          onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`; }}
+          onKeyDown={handleKey}
+          placeholder="Click here and type anything — or just say hi 👋"
+          className="bg-transparent flex-1 text-sm text-slate-100 placeholder:text-slate-500 resize-none focus:outline-none max-h-32 py-1 leading-relaxed"
+        />
+        <div className="flex items-center gap-1 shrink-0 pb-0.5">
+          {/* mic / voice-type */}
+          <IBtn onClick={toggleListen} active={isListening} title={isListening ? "Stop" : "Voice type"} activeCls="bg-red-500/20 text-red-400 border-red-500/40 animate-pulse">
+            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          </IBtn>
+          {/* voice conversation */}
+          <IBtn onClick={toggleVoiceMode} active={voiceMode} title="Voice conversation" activeCls="bg-purple-500/20 text-purple-400 border-purple-500/40">
+            <VoiceWave active={voiceMode} />
+          </IBtn>
+          {/* video */}
+          <IBtn onClick={toggleVideo} active={videoOn} title={videoOn ? "Stop camera" : "Camera"} activeCls="bg-blue-500/20 text-blue-400 border-blue-500/40">
+            {videoOn ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+          </IBtn>
+          {/* screen share */}
+          <IBtn onClick={toggleScreen} active={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} activeCls="bg-green-500/20 text-green-400 border-green-500/40">
+            {screenOn ? <Square className="w-4 h-4 fill-current" /> : <Monitor className="w-4 h-4" />}
+          </IBtn>
+          {/* attach file */}
+          <IBtn onClick={() => fileRef.current?.click()} title="Attach file">
+            <Paperclip className="w-4 h-4" />
+          </IBtn>
+          {/* upload image */}
+          <IBtn onClick={() => imgRef.current?.click()} title="Upload image">
+            <ImageIcon className="w-4 h-4" />
+          </IBtn>
+          {/* send */}
+          <button onClick={sendMsg} disabled={isTyping || (!input.trim() && pendingAtts.length === 0)} title="Send"
+            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all text-white bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed">
+            {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Status indicators */}
+      <div className="flex items-center gap-3 mt-2 px-1 min-h-[20px]">
+        {isListening && <span className="flex items-center gap-1 text-xs text-red-400"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />Listening…</span>}
+        {videoOn && <span className="flex items-center gap-1 text-xs text-blue-400"><Video className="w-3 h-3" />Camera on</span>}
+        {screenOn && <span className="flex items-center gap-1 text-xs text-green-400"><Monitor className="w-3 h-3" />Sharing</span>}
+        {isSpeaking && (
+          <span className="flex items-center gap-1 text-xs text-purple-400">
+            <Volume2 className="w-3 h-3" />Speaking
+            <button onClick={stopSpeak}><VolumeX className="w-3 h-3 hover:text-red-400" /></button>
+          </span>
+        )}
+      </div>
+
+      {/* Hidden inputs */}
+      <input ref={fileRef} type="file" multiple className="hidden" onChange={e => handleFiles(e.target.files, "file")} />
+      <input ref={imgRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(e.target.files, "image")} />
+
+      {/* Category grid */}
+      {!hasMessages && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 mt-6">
+          {HOME_CATEGORIES.map(({ emoji, label }) => (
+            <button key={label} onClick={() => setInput(`Help me: ${label}`)}
+              className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800 transition-all group">
+              <span className="text-2xl">{emoji}</span>
+              <span className="text-[11px] font-medium text-slate-400 group-hover:text-slate-200 text-center leading-tight">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Newsletter form (client component — same file)
 // ---------------------------------------------------------------------------
 
@@ -178,21 +672,18 @@ export default function Home() {
   return (
     <main className="page-transition bg-slate-950 text-slate-100 min-h-screen">
       {/* ------------------------------------------------------------------ */}
-      {/* 1. HERO                                                              */}
+      {/* 1. HERO — AI Chat Input                                              */}
       {/* ------------------------------------------------------------------ */}
-      <section className="relative min-h-[80vh] flex items-center justify-center overflow-hidden">
+      <section className="relative flex flex-col items-center justify-center overflow-hidden pt-16 pb-12">
         {/* Background radial blob */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              "radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120,80,255,0.15), transparent)",
-          }}
+          style={{ background: "radial-gradient(ellipse 80% 60% at 50% -10%, rgba(120,80,255,0.18), transparent)" }}
         />
 
-        <div className="container mx-auto px-4 max-w-6xl relative z-10 py-20 text-center">
+        <div className="container mx-auto px-4 max-w-4xl relative z-10 text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 rounded-full px-4 py-1.5 text-sm mb-8">
+          <div className="inline-flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 rounded-full px-4 py-1.5 text-sm mb-6">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
@@ -201,49 +692,21 @@ export default function Home() {
           </div>
 
           {/* Heading */}
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6">
-            Find your perfect AI model
-            <br />
+          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-4">
+            Find your perfect{" "}
             <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-              with guided discovery
+              AI model
             </span>
           </h1>
 
-          {/* Subtitle */}
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-10">
-            Compare 500+ models side-by-side. Get personalized recommendations.
-            Build smarter AI products faster.
+          {/* Subtitle matching the screenshot */}
+          <p className="text-base md:text-lg text-slate-400 max-w-xl mx-auto mb-8">
+            You don&apos;t need to know anything about AI to get started. Just
+            click the box below — we&apos;ll do the rest together. ✨
           </p>
 
-          {/* CTA area with floating emojis */}
-          <div className="relative inline-block">
-            {/* Floating emoji decorations */}
-            <span className="hidden md:block absolute -top-10 -left-16 text-4xl opacity-40 blur-[1px] select-none">
-              🤖
-            </span>
-            <span className="hidden md:block absolute -top-6 -right-16 text-4xl opacity-40 blur-[1px] select-none">
-              ✨
-            </span>
-            <span className="hidden md:block absolute bottom-0 -left-20 text-4xl opacity-40 blur-[1px] select-none">
-              🚀
-            </span>
-            <span className="hidden md:block absolute -bottom-4 -right-20 text-4xl opacity-40 blur-[1px] select-none">
-              💡
-            </span>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <Link href="/marketplace">
-                <button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white px-8 py-4 text-lg rounded-xl font-semibold transition-all">
-                  Let&apos;s go →
-                </button>
-              </Link>
-              <Link href="/docs">
-                <button className="border border-slate-700 text-slate-300 hover:border-slate-500 hover:text-slate-100 px-8 py-4 text-lg rounded-xl font-semibold transition-all bg-transparent">
-                  View Docs
-                </button>
-              </Link>
-            </div>
-          </div>
+          {/* ── Embedded chat input + category grid ── */}
+          <HomeChatInput />
         </div>
       </section>
 
