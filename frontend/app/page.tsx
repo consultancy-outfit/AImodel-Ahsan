@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
 import {
   MessageSquare, Wand2, Bot, DollarSign, Star, Rss,
@@ -302,6 +303,7 @@ function IBtn({
 // ---------------------------------------------------------------------------
 
 function HomeChatInput() {
+  const router = useRouter();
   const model = MODELS[0];
   const [messages, setMessages] = useState<HMessage[]>([]);
   const [input, setInput] = useState("");
@@ -741,8 +743,11 @@ function HomeChatInput() {
       {!hasMessages && (
         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-3 mt-6">
           {HOME_CATEGORIES.map(({ emoji, label }) => (
-            <button key={label} onClick={() => setInput(`Help me: ${label}`)}
-              className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800 transition-all group">
+            <button
+              key={label}
+              onClick={() => router.push(`/hub?category=${encodeURIComponent(label)}`)}
+              className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800 transition-all group"
+            >
               <span className="text-2xl">{emoji}</span>
               <span className="text-[11px] font-medium text-slate-400 group-hover:text-slate-200 text-center leading-tight">{label}</span>
             </button>

@@ -5,9 +5,11 @@ import {
   useRef,
   useEffect,
   useCallback,
+  Suspense,
   KeyboardEvent,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   MessageSquare,
   Search,
@@ -810,13 +812,20 @@ function VoiceOverlay({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function HubPage() {
+function HubPageInner() {
+  const searchParams = useSearchParams();
   const [selectedModel, setSelectedModel] = useState<AIModel>(MODELS[0]);
   const [modelSearch, setModelSearch] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
+
+  // Pre-fill input from ?category= query param
+  useEffect(() => {
+    const category = searchParams.get("category");
+    if (category) setInput(`Help me with: ${category}`);
+  }, [searchParams]);
   const [costToday, setCostToday] = useState(0);
   const [pendingAtts, setPendingAtts] = useState<Attachment[]>([]);
 
@@ -1053,5 +1062,13 @@ export default function HubPage() {
       <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files, "file")} />
       <input ref={imgRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files, "image")} />
     </div>
+  );
+}
+
+export default function HubPage() {
+  return (
+    <Suspense>
+      <HubPageInner />
+    </Suspense>
   );
 }

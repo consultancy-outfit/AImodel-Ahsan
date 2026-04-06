@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, ChevronDown, Check, X, Copy, SlidersHorizontal } from "lucide-react";
+import { Search, ChevronDown, Check, X, Copy, SlidersHorizontal, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -12,7 +12,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { MODELS, AIModel } from "@/lib/models-data";
+import { AIModel } from "@/lib/models-data";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +117,7 @@ interface SidebarProps {
   licence: string[];
   setLicence: (v: string[]) => void;
   onReset: () => void;
+  labCounts: Record<string, number>;
 }
 
 function SidebarContent({
@@ -131,11 +134,8 @@ function SidebarContent({
   licence,
   setLicence,
   onReset,
+  labCounts,
 }: SidebarProps) {
-  const labCounts = LABS.reduce<Record<string, number>>((acc, lab) => {
-    acc[lab] = MODELS.filter((m) => m.lab === lab).length;
-    return acc;
-  }, {});
 
   function toggleArr(arr: string[], val: string, setter: (v: string[]) => void) {
     setter(arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val]);
@@ -1007,6 +1007,53 @@ export default function MarketplacePage() {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Compute lab counts from currently loaded models
+  const labCounts = LABS.reduce<Record<string, number>>((acc, lab) => {
+    acc[lab] = models.filter((m) => m.lab === lab).length;
+    return acc;
+  }, {});
+
+  // Fetch from API whenever filters change (debounced for search)
+  const fetchModels = useCallback(async (params: {
+    search: string; category: string; selectedLabs: string[];
+    maxPrice: number; minRating: number; sortBy: string;
+  }) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const qs = new URLSearchParams();
+      if (params.search) qs.set("search", params.search);
+      if (params.category && params.category !== "All") qs.set("category", params.category);
+      if (params.selectedLabs.length) qs.set("labs", params.selectedLabs.join(","));
+      if (params.maxPrice < 100) qs.set("maxPrice", String(params.maxPrice));
+      if (params.minRating > 0) qs.set("minRating", String(params.minRating));
+      qs.set("sortBy", params.sortBy);
+
+      const res = await fetch(`${API_URL}/models?${qs.toString()}`);
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const json = await res.json() as { data: AIModel[]; total: number };
+      setModels(json.data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load models");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Debounce search, instant for other filters
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void fetchModels({ search, category, selectedLabs, maxPrice, minRating, sortBy });
+    }, search ? 350 : 0);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search, category, selectedLabs, maxPrice, minRating, sortBy, fetchModels]);
+
   const handleReset = useCallback(() => {
     setSearch("");
     setCategory("All");
@@ -1023,26 +1070,6 @@ export default function MarketplacePage() {
     setDrawerTab("overview");
   }, []);
 
-  const filtered = MODELS.filter((m) => {
-    if (
-      search &&
-      !m.name.toLowerCase().includes(search.toLowerCase()) &&
-      !m.lab.toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
-    if (category !== "All" && category !== m.category) return false;
-    if (selectedLabs.length && !selectedLabs.includes(m.lab)) return false;
-    if (maxPrice < 100 && m.inputPrice > maxPrice) return false;
-    if (minRating > 0 && m.rating < minRating) return false;
-    return true;
-  }).sort((a, b) => {
-    if (sortBy === "rating") return b.rating - a.rating;
-    if (sortBy === "price-asc") return a.inputPrice - b.inputPrice;
-    if (sortBy === "price-desc") return b.inputPrice - a.inputPrice;
-    if (sortBy === "name") return a.name.localeCompare(b.name);
-    return 0;
-  });
-
   const sidebarProps = {
     category,
     setCategory,
@@ -1057,6 +1084,7 @@ export default function MarketplacePage() {
     licence,
     setLicence,
     onReset: handleReset,
+    labCounts,
   };
 
   return (
@@ -1092,16 +1120,28 @@ export default function MarketplacePage() {
       )}
 
       <main className="flex-1 overflow-y-auto">
-        <ModelGrid
-          models={filtered}
-          search={search}
-          setSearch={setSearch}
-          sortBy={sortBy}
-          setSortBy={setSortBy}
-          onSelect={handleSelect}
-          onReset={handleReset}
-          onOpenFilters={() => setFiltersOpen(true)}
-        />
+        {error ? (
+          <div className="flex flex-col items-center justify-center py-32 text-center px-4">
+            <span className="text-5xl mb-4">⚠️</span>
+            <p className="text-lg font-semibold text-slate-300 mb-1">Failed to load models</p>
+            <p className="text-sm text-slate-500">{error}</p>
+          </div>
+        ) : loading ? (
+          <div className="flex items-center justify-center py-32">
+            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+        ) : (
+          <ModelGrid
+            models={models}
+            search={search}
+            setSearch={setSearch}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            onSelect={handleSelect}
+            onReset={handleReset}
+            onOpenFilters={() => setFiltersOpen(true)}
+          />
+        )}
       </main>
       {selectedModel && (
         <ModelDrawer
