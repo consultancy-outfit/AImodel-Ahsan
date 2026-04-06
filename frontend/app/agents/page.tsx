@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Bot, Plus, Search, Headphones, Code2, BarChart2, PenLine,
   Globe, Terminal, Image as ImageIcon, Database, GitBranch,
@@ -15,6 +15,7 @@ import { MODELS } from "@/lib/models-data"
 import type { AIModel } from "@/lib/models-data"
 import { fetchAgents, createAgent, deleteAgent, type Agent, type CreateAgentPayload } from "@/lib/agents"
 import { getToken } from "@/lib/auth"
+import { useRouter } from "next/navigation"
 
 // ─── Static data ──────────────────────────────────────────────────────────────
 
@@ -1084,12 +1085,29 @@ function TemplatesStrip({ onUseTemplate }: { onUseTemplate: () => void }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
-  const isLoggedIn = !!getToken()
+  const router = useRouter()
+  const [authChecked, setAuthChecked] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [view, setView] = useState<"home" | "library">("home")
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadingAgents, setLoadingAgents] = useState(false)
+  const redirected = useRef(false)
+
+  // Auth guard — runs client-side after hydration
+  useEffect(() => {
+    const token = getToken()
+    if (!token) {
+      if (!redirected.current) {
+        redirected.current = true
+        router.replace("/auth/login?redirect=/agents")
+      }
+    } else {
+      setIsLoggedIn(true)
+      setAuthChecked(true)
+    }
+  }, [router])
 
   const loadAgents = useCallback(async () => {
     if (!isLoggedIn) return
@@ -1102,6 +1120,20 @@ export default function AgentsPage() {
   }, [isLoggedIn])
 
   useEffect(() => { void loadAgents() }, [loadAgents])
+
+  // Show nothing while checking auth (prevents flash)
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center animate-pulse">
+            <Bot className="w-5 h-5 text-purple-400" />
+          </div>
+          <p className="text-sm text-slate-500">Checking authentication…</p>
+        </div>
+      </div>
+    )
+  }
 
   const handleNewAgent = () => { setView("library") }
   const handleCreateCustom = () => { setCreateModalOpen(true) }
