@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { ModelsModule } from './models/models.module';
 import { DiscoveriesModule } from './discoveries/discoveries.module';
+import { AgentsModule } from './agents/agents.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { DiscoveriesModule } from './discoveries/discoveries.module';
     AuthModule,
     ModelsModule,
     DiscoveriesModule,
+    AgentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
