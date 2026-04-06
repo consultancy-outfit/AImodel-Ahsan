@@ -102,16 +102,21 @@ function renderContent(text: string) {
   });
 }
 
-const MOCK_RESPONSES = [
-  (q: string) =>
-    `Great question! Based on my analysis, here's what I found about "${q.slice(0, 30)}...".\n\nThis is a complex topic that involves multiple considerations. Let me break it down for you systematically.`,
-  () =>
-    `I've processed your request. Here are the key insights:\n\n1. The primary approach would involve...\n2. Consider the trade-offs between...\n3. For optimal results, you should...`,
-  (q: string) =>
-    `Absolutely! Here's a comprehensive response to your query about "${q.slice(0, 20)}...":\n\nThe most effective strategy involves understanding the core requirements first, then building incrementally towards your goal.`,
-  () =>
-    `That's an interesting challenge. Let me help you think through this step by step:\n\n**Analysis**: Your request touches on several important areas...\n**Recommendation**: I suggest starting with the fundamentals...`,
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+async function callChatAPI(
+  message: string,
+  modelId: string,
+  history: { role: string; content: string }[]
+): Promise<{ message: string; tokensUsed: number; latencyMs: number }> {
+  const res = await fetch(`${API_URL}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, modelId, history }),
+  });
+  if (!res.ok) throw new Error(`Chat API error ${res.status}`);
+  return res.json() as Promise<{ message: string; tokensUsed: number; latencyMs: number }>;
+}
 
 // ─── Voice Wave ───────────────────────────────────────────────────────────────
 
@@ -241,12 +246,20 @@ function ModelSidebar({ selectedModel, setSelectedModel, modelSearch, setModelSe
 // ─── Chat Area ────────────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
-  { label: "Monitor the situation", emoji: "👁️" },
-  { label: "Create a prototype",    emoji: "🛠️" },
-  { label: "Build a business plan", emoji: "📊" },
-  { label: "Create content",        emoji: "✍️" },
-  { label: "Analyze & research",    emoji: "🔍" },
-  { label: "Learn something",       emoji: "🎓" },
+  { label: "Create image",       emoji: "🎨", prompt: "Help me create an AI-generated image. What styles, dimensions, and prompting techniques should I use?" },
+  { label: "Generate Audio",     emoji: "🎵", prompt: "Help me generate audio content. What are the best AI tools and approaches for creating music, voiceovers, or sound effects?" },
+  { label: "Create video",       emoji: "🎬", prompt: "Help me create a video using AI. What tools and workflows should I use for AI video generation or editing?" },
+  { label: "Create slides",      emoji: "📊", prompt: "Help me create a professional slide presentation. Give me a structured outline with slide ideas, design tips, and key content points." },
+  { label: "Create Infographs",  emoji: "📈", prompt: "Help me design an infographic. What data, layout, and visual hierarchy should I use to make it clear and impactful?" },
+  { label: "Create quiz",        emoji: "❓", prompt: "Help me create an engaging quiz. Suggest question types, difficulty levels, and a topic structure for an effective quiz." },
+  { label: "Create Flashcards",  emoji: "📁", prompt: "Help me create a set of study flashcards. What topic should I cover and how should I structure the question-answer pairs?" },
+  { label: "Create Mind map",    emoji: "🧠", prompt: "Help me create a mind map. Give me a central topic and suggest branches, sub-topics, and connections to explore." },
+  { label: "Analyze Data",       emoji: "📉", prompt: "Help me analyze a dataset. What statistical methods, visualizations, and insights should I look for?" },
+  { label: "Write content",      emoji: "✍️", prompt: "Help me write high-quality content. What type of content do you need — blog post, email, social media, or something else?" },
+  { label: "Code Generation",    emoji: "💻", prompt: "Help me generate code. What programming language, framework, and functionality are you looking to implement?" },
+  { label: "Document Analysis",  emoji: "📄", prompt: "Help me analyze a document. Paste the text or describe what you need extracted, summarized, or reviewed." },
+  { label: "Translate",          emoji: "🌐", prompt: "Help me with translation. What text would you like translated, and which languages are involved?" },
+  { label: "Just Exploring",     emoji: "🔭", prompt: "I'm just exploring what you can do! Give me a quick overview of your top capabilities and some creative things we could work on together." },
 ];
 
 interface ChatAreaProps {
@@ -256,6 +269,7 @@ interface ChatAreaProps {
   setInput: (v: string) => void;
   isTyping: boolean;
   sendMessage: () => void;
+  onQuickAction: (prompt: string) => void;
   // media props
   isListening: boolean;
   voiceMode: boolean;
@@ -278,7 +292,7 @@ interface ChatAreaProps {
 }
 
 function ChatArea({
-  selectedModel, messages, input, setInput, isTyping, sendMessage,
+  selectedModel, messages, input, setInput, isTyping, sendMessage, onQuickAction,
   isListening, voiceMode, isSpeaking, transcript,
   videoOn, screenOn, pendingAtts,
   onToggleListen, onToggleVoiceMode, onToggleVideo, onToggleScreen,
@@ -381,24 +395,27 @@ function ChatArea({
       {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-4">
-            <span className="text-6xl">{selectedModel.logo}</span>
+          <div className="flex flex-col items-center justify-center h-full gap-6 text-center px-4 py-6">
+            <span className="text-5xl">{selectedModel.logo}</span>
             <div>
               <h2 className="text-xl font-semibold text-slate-100 mb-1">
                 Hello! I&apos;m {selectedModel.name}
               </h2>
               <p className="text-slate-400 text-sm">
-                Type, speak, share your screen or upload a file — I&apos;m ready!
+                Pick a task below or type your own message to get started.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 justify-center mt-2">
+            {/* Quick action grid — 7 per row, 2 rows */}
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 w-full max-w-2xl">
               {QUICK_ACTIONS.map((action) => (
                 <button
                   key={action.label}
-                  onClick={() => setInput(action.label)}
-                  className="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 text-slate-300 text-sm px-4 py-2.5 rounded-xl cursor-pointer transition-all"
+                  onClick={() => onQuickAction(action.prompt)}
+                  disabled={isTyping}
+                  className="flex flex-col items-center gap-2 bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-purple-500/50 text-slate-300 hover:text-white text-xs px-2 py-3 rounded-xl cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed group"
                 >
-                  {action.emoji} {action.label}
+                  <span className="text-2xl group-hover:scale-110 transition-transform">{action.emoji}</span>
+                  <span className="leading-tight text-center text-[11px]">{action.label}</span>
                 </button>
               ))}
             </div>
@@ -576,15 +593,22 @@ function ChatArea({
               <ImageIcon className="w-4 h-4" />
             </IBtn>
 
-            {/* Send */}
-            <button
-              onClick={sendMessage}
-              disabled={isTyping || (!input.trim() && pendingAtts.length === 0)}
-              title="Send"
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </button>
+            {/* Model pill + Send */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="hidden sm:flex items-center gap-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-slate-300 font-medium select-none">
+                <span className="text-sm leading-none">{selectedModel.logo}</span>
+                <span className="max-w-[80px] truncate">{selectedModel.name}</span>
+              </span>
+              <button
+                onClick={sendMessage}
+                disabled={isTyping || (!input.trim() && pendingAtts.length === 0)}
+                title="Send message"
+                className="flex items-center gap-1.5 px-3 h-8 rounded-xl transition-all text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold"
+              >
+                {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{isTyping ? "Sending…" : "Send"}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -955,10 +979,17 @@ function HubPageInner() {
     setMessages((p) => [...p, userMsg]);
     setInput(""); setPendingAtts([]); setIsTyping(true);
 
-    await new Promise((r) => setTimeout(r, 800 + Math.random() * 1000));
+    // Build history for context (last 10 messages)
+    const history = messages.slice(-10).map((m) => ({ role: m.role, content: m.content }));
 
-    const fn = MOCK_RESPONSES[Math.floor(Math.random() * MOCK_RESPONSES.length)];
-    const reply = fn(content.trim() || "your attachment");
+    let reply = "";
+    try {
+      const res = await callChatAPI(content.trim() || "[attachment]", selectedModel.id, history);
+      reply = res.message;
+      setCostToday((c) => parseFloat((c + (res.tokensUsed / 1_000_000) * selectedModel.outputPrice).toFixed(4)));
+    } catch {
+      reply = `Sorry, I couldn't reach the server right now. Please check that the backend is running on ${API_URL}.`;
+    }
 
     setMessages((p) => [
       ...p,
@@ -966,12 +997,13 @@ function HubPageInner() {
     ]);
     setIsTyping(false);
     setRequestCount((c) => c + 1);
-    setCostToday((c) => parseFloat((c + selectedModel.outputPrice * 0.001).toFixed(4)));
 
     if (voiceMode) speak(reply);
   }
 
   function sendMessage() { void doSend(input, pendingAtts); }
+
+  function handleQuickAction(prompt: string) { void doSend(prompt, []); }
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -1028,6 +1060,7 @@ function HubPageInner() {
           setInput={setInput}
           isTyping={isTyping}
           sendMessage={sendMessage}
+          onQuickAction={handleQuickAction}
           isListening={isListening}
           voiceMode={voiceMode}
           isSpeaking={isSpeaking}
