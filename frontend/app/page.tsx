@@ -6,7 +6,7 @@ import {
   MessageSquare, Wand2, Bot, DollarSign, Star, Rss,
   Mic, MicOff, Video, VideoOff, Monitor, Square,
   Paperclip, ImageIcon, Send, X, Loader2,
-  Volume2, VolumeX, PhoneOff,
+  Volume2, VolumeX, PhoneOff, Search, Download, Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODELS } from "@/lib/models-data";
@@ -161,6 +161,69 @@ const HOME_CATEGORIES = [
   { emoji: "🔭", label: "Just Exploring" },
 ];
 
+const TABS = [
+  {
+    id: "recruiting",
+    label: "Recruiting",
+    icon: "👤",
+    suggestions: [
+      { icon: "🔍", text: "Monitor job postings at target companies" },
+      { icon: "💰", text: "Benchmark salary for a specific role" },
+      { icon: "📋", text: "Build a hiring pipeline tracker" },
+      { icon: "🤝", text: "Research a candidate before an interview" },
+      { icon: "🗺️", text: "Build an interactive talent market map" },
+    ],
+  },
+  {
+    id: "prototype",
+    label: "Create a prototype",
+    icon: "</>",
+    suggestions: [
+      { icon: "🎨", text: "Design a mobile app wireframe for my idea" },
+      { icon: "⚡", text: "Build a landing page prototype in minutes" },
+      { icon: "🔧", text: "Create an interactive product demo" },
+      { icon: "🧪", text: "Prototype a web app with dummy data" },
+      { icon: "📱", text: "Generate a clickable UI mockup" },
+    ],
+  },
+  {
+    id: "business",
+    label: "Build a business",
+    icon: "💼",
+    suggestions: [
+      { icon: "📊", text: "Write a business plan for my startup" },
+      { icon: "📈", text: "Create a financial projection model" },
+      { icon: "🎯", text: "Define my target market and customer persona" },
+      { icon: "📣", text: "Build a go-to-market strategy" },
+      { icon: "💡", text: "Validate my business idea with market research" },
+    ],
+  },
+  {
+    id: "learn",
+    label: "Help me learn",
+    icon: "📖",
+    suggestions: [
+      { icon: "🤖", text: "Explain how large language models work" },
+      { icon: "💻", text: "Teach me Python from scratch" },
+      { icon: "📐", text: "Break down machine learning concepts simply" },
+      { icon: "🧠", text: "Create a study plan for data science" },
+      { icon: "🎓", text: "Quiz me on a topic I am learning" },
+    ],
+  },
+  {
+    id: "research",
+    label: "Research",
+    icon: "🔎",
+    suggestions: [
+      { icon: "📰", text: "Summarize the latest AI research papers" },
+      { icon: "🔬", text: "Compare competing technologies or frameworks" },
+      { icon: "🌐", text: "Research market trends in a specific industry" },
+      { icon: "📊", text: "Analyze competitor strategies and positioning" },
+      { icon: "🗂️", text: "Compile a literature review on a topic" },
+    ],
+  },
+];
+
 const MOCK_REPLIES = [
   (q: string) =>
     `Great! I can help you with "${q.slice(0, 40)}..."\n\nHere's my plan:\n1. Understand your requirements\n2. Generate a solution step by step\n3. Iterate based on feedback\n\nWhat details can you share?`,
@@ -244,6 +307,7 @@ function HomeChatInput() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAtts, setPendingAtts] = useState<HAttachment[]>([]);
+  const [activeTab, setActiveTab] = useState("recruiting");
 
   // voice
   const [isListening, setIsListening] = useState(false);
@@ -394,6 +458,7 @@ function HomeChatInput() {
       {/* Voice conversation overlay */}
       {voiceMode && (
         <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col items-center justify-center gap-6 px-4">
+
           <div className="text-center">
             <div className="text-6xl mb-3">{model.logo}</div>
             <h2 className="text-2xl font-bold text-slate-100">Voice Conversation</h2>
@@ -513,71 +578,146 @@ function HomeChatInput() {
         </div>
       )}
 
-      {/* Pending attachments */}
-      {pendingAtts.length > 0 && (
-        <div className="flex gap-2 flex-wrap mb-3">
-          {pendingAtts.map(a => (
-            <div key={a.id} className="relative bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-              {a.type === "image"
-                ? <img src={a.url} alt={a.name} className="w-14 h-14 object-cover" />
-                : <div className="flex items-center gap-1.5 px-3 py-2 text-xs"><Paperclip className="w-3 h-3 text-slate-400" /><span className="text-slate-300 max-w-[100px] truncate">{a.name}</span></div>}
-              <button onClick={() => setPendingAtts(p => p.filter(x => x.id !== a.id))} className="absolute top-0.5 right-0.5 bg-slate-900/80 rounded-full p-0.5 hover:bg-red-600">
-                <X className="w-2.5 h-2.5 text-white" />
-              </button>
+      {/* ── Search card ── */}
+      <div className="bg-slate-900 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
+        {/* Pending attachments */}
+        {pendingAtts.length > 0 && (
+          <div className="flex gap-2 flex-wrap px-4 pt-3">
+            {pendingAtts.map(a => (
+              <div key={a.id} className="relative bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+                {a.type === "image"
+                  ? <img src={a.url} alt={a.name} className="w-14 h-14 object-cover" />
+                  : <div className="flex items-center gap-1.5 px-3 py-2 text-xs"><Paperclip className="w-3 h-3 text-slate-400" /><span className="text-slate-300 max-w-[100px] truncate">{a.name}</span></div>}
+                <button onClick={() => setPendingAtts(p => p.filter(x => x.id !== a.id))} className="absolute top-0.5 right-0.5 bg-slate-900/80 rounded-full p-0.5 hover:bg-red-600">
+                  <X className="w-2.5 h-2.5 text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Voice transcript */}
+        {transcript && (
+          <div className="mx-4 mt-3 px-3 py-2 bg-purple-600/10 border border-purple-500/30 rounded-xl text-sm text-purple-300 italic">
+            {transcript}…
+          </div>
+        )}
+
+        {/* Input field */}
+        <div className="px-5 pt-5 pb-2">
+          <textarea
+            ref={taRef}
+            rows={1}
+            value={input}
+            onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`; }}
+            onKeyDown={handleKey}
+            placeholder="Click here and type anything — or just say hi! 👋"
+            className="w-full bg-transparent text-slate-100 placeholder:text-slate-500 text-base resize-none focus:outline-none max-h-32 leading-relaxed"
+          />
+        </div>
+
+        {/* Action bar */}
+        <div className="px-4 pb-4 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Mic */}
+            <button onClick={toggleListen} title={isListening ? "Stop listening" : "Voice type"}
+              className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                isListening ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-purple-500/20 hover:bg-purple-500/30 text-purple-400")}>
+              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+            {/* Attach file */}
+            <button onClick={() => fileRef.current?.click()} title="Attach file"
+              className="w-8 h-8 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 flex items-center justify-center transition-colors">
+              <Paperclip className="w-4 h-4" />
+            </button>
+            {/* Upload image */}
+            <button onClick={() => imgRef.current?.click()} title="Upload image"
+              className="w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 flex items-center justify-center transition-colors">
+              <ImageIcon className="w-4 h-4" />
+            </button>
+            {/* Voice conversation */}
+            <button onClick={toggleVoiceMode} title="Voice conversation"
+              className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                voiceMode ? "bg-purple-500/30 text-purple-300" : "bg-teal-500/20 hover:bg-teal-500/30 text-teal-400")}>
+              <VoiceWave active={voiceMode} />
+            </button>
+            {/* Video */}
+            <button onClick={toggleVideo} title={videoOn ? "Stop camera" : "Camera"}
+              className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                videoOn ? "bg-red-500/30 text-red-400" : "bg-red-500/20 hover:bg-red-500/30 text-red-400")}>
+              {videoOn ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
+            </button>
+            {/* Screen share */}
+            <button onClick={toggleScreen} title={screenOn ? "Stop sharing" : "Share screen"}
+              className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                screenOn ? "bg-green-500/30 text-green-400" : "bg-green-500/20 hover:bg-green-500/30 text-green-400")}>
+              {screenOn ? <Square className="w-4 h-4 fill-current" /> : <Monitor className="w-4 h-4" />}
+            </button>
+            {/* Agent chip */}
+            <div className="flex items-center gap-1 border border-slate-600 rounded-full px-3 py-1 text-xs text-slate-400 cursor-pointer hover:bg-slate-800 transition-colors ml-0.5">
+              <Monitor className="w-3 h-3" />
+              <span>Agent</span>
+              <span className="text-slate-500 font-medium">+</span>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {/* Voice transcript */}
-      {transcript && (
-        <div className="mb-2 px-3 py-2 bg-purple-600/10 border border-purple-500/30 rounded-xl text-sm text-purple-300 italic">
-          {transcript}…
-        </div>
-      )}
-
-      {/* ── Main input box ── */}
-      <div className="flex items-end gap-2 bg-slate-800/80 border border-slate-700 rounded-2xl px-4 py-2.5 focus-within:border-purple-500 transition-colors shadow-xl">
-        <textarea
-          ref={taRef}
-          rows={1}
-          value={input}
-          onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`; }}
-          onKeyDown={handleKey}
-          placeholder="Click here and type anything — or just say hi 👋"
-          className="bg-transparent flex-1 text-sm text-slate-100 placeholder:text-slate-500 resize-none focus:outline-none max-h-32 py-1 leading-relaxed"
-        />
-        <div className="flex items-center gap-1 shrink-0 pb-0.5">
-          {/* mic / voice-type */}
-          <IBtn onClick={toggleListen} active={isListening} title={isListening ? "Stop" : "Voice type"} activeCls="bg-red-500/20 text-red-400 border-red-500/40 animate-pulse">
-            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </IBtn>
-          {/* voice conversation */}
-          <IBtn onClick={toggleVoiceMode} active={voiceMode} title="Voice conversation" activeCls="bg-purple-500/20 text-purple-400 border-purple-500/40">
-            <VoiceWave active={voiceMode} />
-          </IBtn>
-          {/* video */}
-          <IBtn onClick={toggleVideo} active={videoOn} title={videoOn ? "Stop camera" : "Camera"} activeCls="bg-blue-500/20 text-blue-400 border-blue-500/40">
-            {videoOn ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-          </IBtn>
-          {/* screen share */}
-          <IBtn onClick={toggleScreen} active={screenOn} title={screenOn ? "Stop sharing" : "Share screen"} activeCls="bg-green-500/20 text-green-400 border-green-500/40">
-            {screenOn ? <Square className="w-4 h-4 fill-current" /> : <Monitor className="w-4 h-4" />}
-          </IBtn>
-          {/* attach file */}
-          <IBtn onClick={() => fileRef.current?.click()} title="Attach file">
-            <Paperclip className="w-4 h-4" />
-          </IBtn>
-          {/* upload image */}
-          <IBtn onClick={() => imgRef.current?.click()} title="Upload image">
-            <ImageIcon className="w-4 h-4" />
-          </IBtn>
-          {/* send */}
-          <button onClick={sendMsg} disabled={isTyping || (!input.trim() && pendingAtts.length === 0)} title="Send"
-            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all text-white bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed">
-            {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          {/* Let's go button */}
+          <button
+            onClick={sendMsg}
+            disabled={isTyping}
+            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-white px-5 py-2 rounded-full text-sm font-semibold transition-colors shadow-sm shrink-0"
+          >
+            {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Let&apos;s go
           </button>
         </div>
+
+        {/* Tabs + suggestions — only when no messages */}
+        {!hasMessages && (
+          <>
+            {/* Tab bar */}
+            <div className="border-t border-slate-800 flex overflow-x-auto scrollbar-none">
+              {TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors shrink-0",
+                    activeTab === tab.id
+                      ? "border-slate-100 text-slate-100"
+                      : "border-transparent text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  <span className="text-sm">{tab.icon}</span>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Suggestions list */}
+            <div>
+              {TABS.find(t => t.id === activeTab)?.suggestions.map(s => (
+                <button
+                  key={s.text}
+                  onClick={() => setInput(s.text)}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-800 transition-colors text-left group"
+                >
+                  <span className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-sm shrink-0 group-hover:bg-slate-700 transition-colors">
+                    {s.icon}
+                  </span>
+                  <span className="text-sm text-slate-300">{s.text}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Hint footer */}
+            <div className="px-5 py-2.5 border-t border-slate-800 flex items-center gap-1.5 text-xs text-slate-500">
+              <Info className="w-3 h-3 shrink-0" />
+              Click any suggestion to fill the search box, then press{" "}
+              <span className="text-orange-400 font-medium">Let&apos;s go</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Status indicators */}
@@ -599,7 +739,7 @@ function HomeChatInput() {
 
       {/* Category grid */}
       {!hasMessages && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 mt-6">
+        <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-3 mt-6">
           {HOME_CATEGORIES.map(({ emoji, label }) => (
             <button key={label} onClick={() => setInput(`Help me: ${label}`)}
               className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-600 hover:bg-slate-800 transition-all group">
@@ -699,7 +839,7 @@ export default function Home() {
             </span>
           </h1>
 
-          {/* Subtitle matching the screenshot */}
+          {/* Subtitle */}
           <p className="text-base md:text-lg text-slate-400 max-w-xl mx-auto mb-8">
             You don&apos;t need to know anything about AI to get started. Just
             click the box below — we&apos;ll do the rest together. ✨

@@ -7,7 +7,11 @@
       "Bash(npm install:*)",
       "Bash(npx shadcn@latest add dropdown-menu --yes)",
       "Bash(npx shadcn@latest add slider --yes)",
-      "Bash(npx shadcn@latest add badge --yes)"
+      "Bash(npx shadcn@latest add badge --yes)",
+      "Bash(npx @nestjs/cli@latest new backend --package-manager npm --skip-git --strict)",
+      "Bash(timeout 20 node dist/main.js)",
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:nexusai-db.netlify.app)"
     ]
   }
 }
