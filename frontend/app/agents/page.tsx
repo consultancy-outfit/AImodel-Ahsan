@@ -986,7 +986,7 @@ function HomeMain({ onNewAgent }: { onNewAgent: () => void }) {
 
 // ─── Library main content ─────────────────────────────────────────────────────
 
-function LibraryMain({ onCreateCustom }: { onCreateCustom: () => void }) {
+function LibraryMain({ onCreateCustom, userAgents }: { onCreateCustom: () => void; userAgents: Agent[] }) {
   return (
     <main className="flex-1 overflow-y-auto px-8 py-6">
       <div className="flex items-center justify-between mb-5">
@@ -1000,6 +1000,35 @@ function LibraryMain({ onCreateCustom }: { onCreateCustom: () => void }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        {/* User-created agents from DB */}
+        {userAgents.map(agent => (
+          <div key={agent._id} className="bg-slate-900 border border-purple-500/30 hover:border-purple-500/60 rounded-2xl p-5 transition-all hover:shadow-lg hover:shadow-purple-900/20 cursor-pointer group">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 bg-purple-500/20">
+                🤖
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm text-white group-hover:text-slate-100 truncate">{agent.name}</p>
+                <span className={cn(
+                  "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
+                  agent.status === "active" ? "bg-green-500/15 text-green-400" : "bg-slate-700 text-slate-400"
+                )}>{agent.status}</span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mb-3 line-clamp-3 leading-relaxed">{agent.description || "Custom agent"}</p>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-[10px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-full">{agent.modelId}</span>
+              {agent.tools.slice(0, 2).map(t => (
+                <span key={t} className="text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full">{t}</span>
+              ))}
+              {agent.tools.length > 2 && (
+                <span className="text-[10px] text-slate-600 px-1">+{agent.tools.length - 2}</span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Default library agents */}
         {LIBRARY_AGENTS.map(agent => (
           <div key={agent.id} className="bg-slate-900 border border-slate-800 hover:border-slate-600 rounded-2xl p-5 transition-all hover:shadow-lg hover:shadow-black/30 cursor-pointer group">
             <div className="flex items-center gap-3 mb-3">
@@ -1175,7 +1204,7 @@ export default function AgentsPage() {
       {view === "home" ? (
         <HomeMain onNewAgent={handleNewAgent} />
       ) : (
-        <LibraryMain onCreateCustom={handleCreateCustom} />
+        <LibraryMain onCreateCustom={handleCreateCustom} userAgents={agents} />
       )}
 
       {/* 6-Step Modal */}
